@@ -16,6 +16,12 @@
     sfnt: 'application/font-sfnt',
     svg: 'image/svg+xml'
   };
+  const downloadMethods = {
+    default: 'default',
+    ios: 'ios',
+    ie: 'ie'
+  };
+  const downloadMethodsSuffix = 'download';
 
   const isElement = obj => obj instanceof HTMLElement || obj instanceof SVGElement;
   const requireDomNode = el => {
@@ -349,41 +355,72 @@
     });
   };
 
-  out$.download = (name, uri) => {
-    if (navigator.msSaveOrOpenBlob) navigator.msSaveOrOpenBlob(uriToBlob(uri), name);
-    else {
-      const saveLink = document.createElement('a');
-      if ('download' in saveLink) {
-        saveLink.download = name;
-        saveLink.style.display = 'none';
-        document.body.appendChild(saveLink);
-        try {
-          const blob = uriToBlob(uri);
-          const url = URL.createObjectURL(blob);
-          saveLink.href = url;
-          saveLink.onclick = () => requestAnimationFrame(() => URL.revokeObjectURL(url));
-        } catch (e) {
-          console.error(e);
-          console.warn('Error while getting object URL. Falling back to string URL.');
-          saveLink.href = uri;
-        }
-        saveLink.click();
-        document.body.removeChild(saveLink);
-      } else {
-        window.open(uri, '_temp', 'menubar=no,toolbar=no,status=no');
-      }
+  out$[downloadMethods.ie + downloadMethodsSuffix] = (name, uri) => {
+    navigator.msSaveOrOpenBlob(uriToBlob(uri), name);
+  };
+
+  out$[downloadMethods.ios + downloadMethodsSuffix] = (name, uri, { popup }) => {
+    popup.document.title = name;
+    popup.location.replace(uri);
+  };
+
+  out$[downloadMethods.default + downloadMethodsSuffix] = (name, uri) => {
+    const saveLink = document.createElement('a');
+    saveLink.download = name;
+    saveLink.style.display = 'none';
+    document.body.appendChild(saveLink);
+    try {
+      const blob = uriToBlob(uri);
+      const url = URL.createObjectURL(blob);
+      saveLink.href = url;
+      saveLink.onclick = () => requestAnimationFrame(() => URL.revokeObjectURL(url));
+    } catch (e) {
+      console.error(e);
+      console.warn('Error while getting object URL. Falling back to string URL.');
+      saveLink.href = uri;
+    }
+    saveLink.click();
+    document.body.removeChild(saveLink);
+  };
+
+  const determineDownloadMethod = () => {
+    if (navigator.msSaveOrOpenBlob) {
+      return downloadMethods.ie;
+    }
+
+    const anchorElement = document.createElement('a');
+    if (!('download' in anchorElement)) {
+      return downloadMethods.ios
+    }
+
+    return downloadMethods.default;
+  };
+
+  const prepareDownload = (downloadMethod) => {
+    if (downloadMethod === downloadMethods.ios) {
+      // https://stackoverflow.com/a/39387533
+      // Open popup from the same context as user iteration.
+      // Pass the reference to the popup.
+      const popup = window.open();
+      return { popup };
     }
   };
 
   out$.saveSvg = (el, name, options) => {
+    const downloadMethod = determineDownloadMethod();
+    const downloadHelper = prepareDownload(downloadMethod);
+
     return requireDomNodePromise(el)
       .then(el => out$.svgAsDataUri(el, options || {}))
-      .then(uri => out$.download(name, uri));
+      .then(uri => out$[downloadMethod + downloadMethodsSuffix](name, uri, downloadHelper));
   };
 
   out$.saveSvgAsPng = (el, name, options) => {
+    const downloadMethod = determineDownloadMethod();
+    const downloadHelper = prepareDownload(downloadMethod);
+
     return requireDomNodePromise(el)
       .then(el => out$.svgAsPngUri(el, options || {}))
-      .then(uri => out$.download(name, uri));
+      .then(uri => out$[downloadMethod + downloadMethodsSuffix](name, uri, downloadHelper));
   };
 })();
