@@ -16,12 +16,11 @@
     sfnt: 'application/font-sfnt',
     svg: 'image/svg+xml'
   };
-  const downloadMethods = {
+  const downloadFunctionsTypes = {
     default: 'default',
     ios: 'ios',
     ie: 'ie'
   };
-  const downloadMethodsSuffix = 'download';
 
   const isElement = obj => obj instanceof HTMLElement || obj instanceof SVGElement;
   const requireDomNode = el => {
@@ -221,6 +220,67 @@
     return inlineFonts(fontList).then(fontCss => css.join('\n') + fontCss);
   };
 
+  const downloadFunctions = {
+    [downloadFunctionsTypes.ie]: (name, uri) => {
+      navigator.msSaveOrOpenBlob(uriToBlob(uri), name);
+    },
+
+    [downloadFunctionsTypes.ios]: (name, uri, { popup }) => {
+      popup.document.title = name;
+      popup.location.replace(uri);
+    },
+
+    [downloadFunctionsTypes.default]: (name, uri) => {
+      const saveLink = document.createElement('a');
+      saveLink.download = name;
+      saveLink.style.display = 'none';
+      document.body.appendChild(saveLink);
+      try {
+        const blob = uriToBlob(uri);
+        const url = URL.createObjectURL(blob);
+        saveLink.href = url;
+        saveLink.onclick = () => requestAnimationFrame(() => URL.revokeObjectURL(url));
+      } catch (e) {
+        console.error(e);
+        console.warn('Error while getting object URL. Falling back to string URL.');
+        saveLink.href = uri;
+      }
+      saveLink.click();
+      document.body.removeChild(saveLink);
+    }
+  }
+
+  const determineDownloadFunctionType = () => {
+    if (navigator.msSaveOrOpenBlob) {
+      return downloadFunctionsTypes.ie;
+    }
+
+    const anchorElement = document.createElement('a');
+    if (!('download' in anchorElement)) {
+      return downloadFunctionsTypes.ios
+    }
+
+    return downloadFunctionsTypes.default;
+  };
+
+  const prepareDownloadOptions = (functionType) => {
+    if (functionType === downloadFunctionsTypes.ios) {
+      // https://stackoverflow.com/a/39387533
+      // Open popup from the same context as user iteration.
+      // Pass the reference to the popup.
+      const popup = window.open();
+      return { popup };
+    }
+  };
+
+  const getDownloadFunction = () => {
+    const downloadFunctionType = determineDownloadFunctionType();
+    const downloadOptions = prepareDownloadOptions(downloadFunctionType);
+    return (name, uri) => {
+      return downloadFunctions[downloadFunctionType](name, uri, downloadOptions);
+    }
+  }
+
   out$.prepareSvg = (el, options, done) => {
     requireDomNode(el);
     const {
@@ -355,72 +415,24 @@
     });
   };
 
-  out$[downloadMethods.ie + downloadMethodsSuffix] = (name, uri) => {
-    navigator.msSaveOrOpenBlob(uriToBlob(uri), name);
-  };
-
-  out$[downloadMethods.ios + downloadMethodsSuffix] = (name, uri, { popup }) => {
-    popup.document.title = name;
-    popup.location.replace(uri);
-  };
-
-  out$[downloadMethods.default + downloadMethodsSuffix] = (name, uri) => {
-    const saveLink = document.createElement('a');
-    saveLink.download = name;
-    saveLink.style.display = 'none';
-    document.body.appendChild(saveLink);
-    try {
-      const blob = uriToBlob(uri);
-      const url = URL.createObjectURL(blob);
-      saveLink.href = url;
-      saveLink.onclick = () => requestAnimationFrame(() => URL.revokeObjectURL(url));
-    } catch (e) {
-      console.error(e);
-      console.warn('Error while getting object URL. Falling back to string URL.');
-      saveLink.href = uri;
-    }
-    saveLink.click();
-    document.body.removeChild(saveLink);
-  };
-
-  const determineDownloadMethod = () => {
-    if (navigator.msSaveOrOpenBlob) {
-      return downloadMethods.ie;
-    }
-
-    const anchorElement = document.createElement('a');
-    if (!('download' in anchorElement)) {
-      return downloadMethods.ios
-    }
-
-    return downloadMethods.default;
-  };
-
-  const prepareDownload = (downloadMethod) => {
-    if (downloadMethod === downloadMethods.ios) {
-      // https://stackoverflow.com/a/39387533
-      // Open popup from the same context as user iteration.
-      // Pass the reference to the popup.
-      const popup = window.open();
-      return { popup };
-    }
-  };
+  out$.download = (name, uri) => {
+    const downloadFunction = getDownloadFunction();
+    return downloadFunction(name, uri);
+  }
 
   out$.saveSvg = (el, name, options) => {
-    const downloadMethod = determineDownloadMethod();
-    const downloadHelper = prepareDownload(downloadMethod);
+    const downloadFunction = getDownloadFunction();
 
     return requireDomNodePromise(el)
       .then(el => out$.svgAsDataUri(el, options || {}))
-      .then(uri => out$[downloadMethod + downloadMethodsSuffix](name, uri, downloadHelper));
+      .then(uri => downloadFunction(name, uri));
   };
 
   out$.saveSvgAsPng = (el, name, options) => {
-    const downloadMethod = determineDownloadMethod();
-    const downloadHelper = prepareDownload(downloadMethod);
+    const downloadFunction = getDownloadFunction();
 
     return requireDomNodePromise(el)
       .then(el => out$.svgAsPngUri(el, options || {}))
-      .then(uri => out$[downloadMethod + downloadMethodsSuffix](name, uri, downloadHelper));
+      .then(uri => downloadFunction(name, uri));
   };
 })();
