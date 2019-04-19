@@ -416,8 +416,8 @@
   };
 
   out$.download = (name, uri) => {
-    const downloadFunction = getDownloadFunction();
-    return downloadFunction(name, uri);
+    const download = getDownloadFunction();
+    return download(name, uri);
   }
 
   out$.saveSvg = (el, name, options) => {
