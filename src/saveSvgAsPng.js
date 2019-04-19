@@ -421,18 +421,18 @@
   }
 
   out$.saveSvg = (el, name, options) => {
-    const downloadFunction = getDownloadFunction();
+    const download = getDownloadFunction();
 
     return requireDomNodePromise(el)
       .then(el => out$.svgAsDataUri(el, options || {}))
-      .then(uri => downloadFunction(name, uri));
+      .then(uri => download(name, uri));
   };
 
   out$.saveSvgAsPng = (el, name, options) => {
-    const downloadFunction = getDownloadFunction();
+    const download = getDownloadFunction();
 
     return requireDomNodePromise(el)
       .then(el => out$.svgAsPngUri(el, options || {}))
-      .then(uri => downloadFunction(name, uri));
+      .then(uri => download(name, uri));
   };
 })();
