@@ -17,6 +17,11 @@
     sfnt: 'application/font-sfnt',
     svg: 'image/svg+xml'
   };
+  const downloadFunctionsTypes = {
+    default: 'default',
+    ios: 'ios',
+    ie: 'ie'
+  };
 
   const isElement = obj => obj instanceof HTMLElement || obj instanceof SVGElement;
   const requireDomNode = el => {
@@ -216,6 +221,67 @@
     return inlineFonts(fontList).then(fontCss => css.join('\n') + fontCss);
   };
 
+  const downloadFunctions = {
+    [downloadFunctionsTypes.ie]: (name, uri) => {
+      navigator.msSaveOrOpenBlob(uriToBlob(uri), name);
+    },
+
+    [downloadFunctionsTypes.ios]: (name, uri, { popup }) => {
+      popup.document.title = name;
+      popup.location.replace(uri);
+    },
+
+    [downloadFunctionsTypes.default]: (name, uri) => {
+      const saveLink = document.createElement('a');
+      saveLink.download = name;
+      saveLink.style.display = 'none';
+      document.body.appendChild(saveLink);
+      try {
+        const blob = uriToBlob(uri);
+        const url = URL.createObjectURL(blob);
+        saveLink.href = url;
+        saveLink.onclick = () => requestAnimationFrame(() => URL.revokeObjectURL(url));
+      } catch (e) {
+        console.error(e);
+        console.warn('Error while getting object URL. Falling back to string URL.');
+        saveLink.href = uri;
+      }
+      saveLink.click();
+      document.body.removeChild(saveLink);
+    }
+  }
+
+  const determineDownloadFunctionType = () => {
+    if (navigator.msSaveOrOpenBlob) {
+      return downloadFunctionsTypes.ie;
+    }
+
+    const anchorElement = document.createElement('a');
+    if (!('download' in anchorElement)) {
+      return downloadFunctionsTypes.ios
+    }
+
+    return downloadFunctionsTypes.default;
+  };
+
+  const prepareDownloadOptions = (functionType) => {
+    if (functionType === downloadFunctionsTypes.ios) {
+      // https://stackoverflow.com/a/39387533
+      // Open popup from the same context as user iteration.
+      // Pass the reference to the popup.
+      const popup = window.open();
+      return { popup };
+    }
+  };
+
+  const getDownloadFunction = () => {
+    const downloadFunctionType = determineDownloadFunctionType();
+    const downloadOptions = prepareDownloadOptions(downloadFunctionType);
+    return (name, uri) => {
+      return downloadFunctions[downloadFunctionType](name, uri, downloadOptions);
+    }
+  }
+
   out$.prepareSvg = (el, options, done) => {
     requireDomNode(el);
     const {
@@ -348,40 +414,23 @@
   };
 
   out$.download = (name, uri) => {
-    if (navigator.msSaveOrOpenBlob) navigator.msSaveOrOpenBlob(uriToBlob(uri), name);
-    else {
-      const saveLink = document.createElement('a');
-      if ('download' in saveLink) {
-        saveLink.download = name;
-        saveLink.style.display = 'none';
-        document.body.appendChild(saveLink);
-        try {
-          const blob = uriToBlob(uri);
-          const url = URL.createObjectURL(blob);
-          saveLink.href = url;
-          saveLink.onclick = () => requestAnimationFrame(() => URL.revokeObjectURL(url));
-        } catch (e) {
-          console.error(e);
-          console.warn('Error while getting object URL. Falling back to string URL.');
-          saveLink.href = uri;
-        }
-        saveLink.click();
-        document.body.removeChild(saveLink);
-      } else {
-        window.open(uri, '_temp', 'menubar=no,toolbar=no,status=no');
-      }
-    }
-  };
+    const download = getDownloadFunction();
+    return download(name, uri);
+  }
 
   out$.saveSvg = (el, name, options) => {
+    const download = getDownloadFunction();
+
     return requireDomNodePromise(el)
       .then(el => out$.svgAsDataUri(el, options || {}))
-      .then(uri => out$.download(name, uri));
+      .then(uri => download(name, uri));
   };
 
   out$.saveSvgAsPng = (el, name, options) => {
+    const download = getDownloadFunction();
+
     return requireDomNodePromise(el)
       .then(el => out$.svgAsPngUri(el, options || {}))
-      .then(uri => out$.download(name, uri));
+      .then(uri => download(name, uri));
   };
 })();
